@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var ErrMonitorAlreadyRunning = errors.New("monitor is already running")
+
 const (
 	defaultPollInterval   = 60 * time.Second
 	defaultCheckTimeout   = 10 * time.Second
@@ -159,7 +161,7 @@ func (m *Monitor) Start() error {
 	defer m.mu.Unlock()
 
 	if m.cancel != nil {
-		return errors.New("monitor is already running")
+		return ErrMonitorAlreadyRunning
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
