@@ -30,3 +30,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Compiled binaries
+/dist/
+
+# SQLite DB files
+*.sqlite
