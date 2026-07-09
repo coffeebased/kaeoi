@@ -47,18 +47,14 @@ CREATE TABLE IF NOT EXISTS game_servers (
 	code TEXT NOT NULL PRIMARY KEY CHECK (trim(code) <> '' AND code = trim(code) AND code = upper(code)),
 	host TEXT NOT NULL CHECK (trim(host) <> ''),
 	port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
-	query_host TEXT NOT NULL DEFAULT '',
+	query_host TEXT NOT NULL DEFAULT ''CHECK (query_host = trim(query_host)),
 	query_port INTEGER NOT NULL DEFAULT 0 CHECK (query_port BETWEEN 0 AND 65535),
 	kind TEXT NOT NULL CHECK (kind IN ('none', 'generic_tcp', 'generic_udp', 'steam_a2s', 'minecraft_java')) DEFAULT 'none',
 	password TEXT NOT NULL DEFAULT '',
 	displays_ip INTEGER NOT NULL DEFAULT 0 CHECK (displays_ip IN (0, 1)),
 	displays_port INTEGER NOT NULL DEFAULT 0 CHECK (displays_port IN (0, 1)),
 
-	CHECK (
-		(trim(query_host) = '' AND query_port = 0)
-		OR
-		(trim(query_host) <> '' AND query_port BETWEEN 1 AND 65535)
-	)
+	CHECK (query_host = '' OR query_port BETWEEN 1 AND 65535)
 );
 
 CREATE TABLE IF NOT EXISTS game_server_defaults (

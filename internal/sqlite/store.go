@@ -43,10 +43,10 @@ func (s *Store) List(ctx context.Context) ([]gameserver.GameServer, error) {
 		gsd.version,
 		gsd.max_players,
 		gsd.title,
-		gsd.description,
+		gsd.description
 	FROM game_servers AS gs
 	INNER JOIN game_server_defaults AS gsd
-	ON gs.code = gsd.code
+	ON gs.code = gsd.game_server_code
 	ORDER BY code;
 	`)
 	if err != nil {
@@ -98,6 +98,8 @@ func (s *Store) Get(ctx context.Context, code string) (gameserver.GameServer, er
 	if strings.TrimSpace(code) == "" {
 		return gameserver.GameServer{}, errors.New("code cannot be empty or white space")
 	}
+
+	code = strings.ToUpper(code)
 
 	row := s.db.QueryRowContext(ctx, `
 	SELECT
@@ -226,6 +228,8 @@ func (s *Store) Update(ctx context.Context, code string, request gameserver.Upda
 		return errors.New("code cannot be empty or white space")
 	}
 
+	code = strings.ToUpper(code)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -233,6 +237,15 @@ func (s *Store) Update(ctx context.Context, code string, request gameserver.Upda
 	defer func() {
 		_ = tx.Rollback()
 	}()
+
+	var exists int
+	row := tx.QueryRowContext(ctx, "SELECT 1 FROM game_servers WHERE code = ?", code)
+	if err := row.Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return gameserver.ErrNotFound
+		}
+		return err
+	}
 
 	if request.Host != nil {
 		if _, err := tx.ExecContext(ctx, `
@@ -314,6 +327,26 @@ func (s *Store) Update(ctx context.Context, code string, request gameserver.Upda
 		}
 	}
 
+	if request.Ignore != nil {
+		if _, err := tx.ExecContext(ctx, `
+		UPDATE game_servers
+		SET ignore = ?
+		WHERE code = ?
+		`, *request.Ignore, code); err != nil {
+			return err
+		}
+	}
+
+	if request.OverrideDefaults != nil {
+		if _, err := tx.ExecContext(ctx, `
+		UPDATE game_servers
+		SET override_defaults = ?
+		WHERE code = ?
+		`, *request.OverrideDefaults, code); err != nil {
+			return err
+		}
+	}
+
 	if request.Application != nil {
 		if _, err := tx.ExecContext(ctx, `
 		UPDATE game_server_defaults
@@ -376,6 +409,8 @@ func (s *Store) Delete(ctx context.Context, code string) error {
 		return errors.New("code cannot be empty or white space")
 	}
 
+	code = strings.ToUpper(code)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -384,7 +419,7 @@ func (s *Store) Delete(ctx context.Context, code string) error {
 		_ = tx.Rollback()
 	}()
 
-	_, err = tx.ExecContext(
+	result, err := tx.ExecContext(
 		ctx,
 		`
 		DELETE FROM game_servers
@@ -394,6 +429,15 @@ func (s *Store) Delete(ctx context.Context, code string) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if affected == 0 {
+		return gameserver.ErrNotFound
 	}
 
 	return tx.Commit()
