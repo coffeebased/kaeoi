@@ -151,7 +151,7 @@ func (s *Store) Get(ctx context.Context, code string) (gameserver.GameServer, er
 	return server, nil
 }
 
-func (s *Store) Create(ctx context.Context, request gameserver.CreateRequest) error {
+func (s *Store) Create(ctx context.Context, request gameserver.Create) error {
 	if ctx == nil {
 		return errors.New("ctx is required")
 	}
@@ -219,7 +219,7 @@ func (s *Store) Create(ctx context.Context, request gameserver.CreateRequest) er
 	return tx.Commit()
 }
 
-func (s *Store) Update(ctx context.Context, code string, request gameserver.UpdateRequest) error {
+func (s *Store) Update(ctx context.Context, code string, request gameserver.Update) error {
 	if ctx == nil {
 		panic("nil context")
 	}

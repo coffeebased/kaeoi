@@ -12,7 +12,7 @@ func (c *CLI) add(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	fs.SetOutput(c.stderr)
 
-	var request gameserver.CreateRequest
+	var request gameserver.Create
 	var kind string
 
 	fs.StringVar(&request.Host, "host", "", "server join host")

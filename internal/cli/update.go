@@ -13,7 +13,7 @@ func (c *CLI) update(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(c.stderr)
 
-	var request gameserver.UpdateRequest
+	var request gameserver.Update
 
 	var host string
 	var port int
@@ -67,7 +67,7 @@ Flags:`)
 		return fmt.Errorf("update expects exactly one server identifier code argument")
 	}
 
-	var code = fs.Arg(0)
+	code := fs.Arg(0)
 
 	if fs.NFlag() == 0 {
 		return errors.New("update requires at least one flag")
