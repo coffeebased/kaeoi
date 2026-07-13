@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/coffeebased/kaeoi/pkg/poll"
@@ -12,32 +13,38 @@ var ErrMonitorRunning = errors.New("monitor is already running")
 
 const defaultSubscriberSize = 16
 
+type Target interface {
+	GameServer() GameServer
+	poll.Checker
+}
+
 type MonitorOptions struct {
-	Pollers        poll.Options
 	SubscriberSize int
+	Pollers        poll.Options
 }
 
 func (o *MonitorOptions) normalize() {
-	o.Pollers.Normalize()
-
 	if o.SubscriberSize == 0 {
 		o.SubscriberSize = defaultSubscriberSize
 	}
+
+	o.Pollers.Normalize()
 }
 
 func (o MonitorOptions) validate() error {
-	if err := o.Pollers.Validate(); err != nil {
-		return err
-	}
-
 	if o.SubscriberSize <= 0 {
 		return errors.New("subscriber size cannot be less than zero")
+	}
+
+	if err := o.Pollers.Validate(); err != nil {
+		return fmt.Errorf("poller options: %w", err)
 	}
 
 	return nil
 }
 
 type Monitor struct {
+	targets     []Target
 	options     MonitorOptions
 	subscribers map[chan GameServer]struct{}
 	mu          sync.RWMutex
@@ -71,6 +78,9 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 	}
 
 	m.subscribers[ch] = struct{}{}
+	for _, target := range m.targets {
+		ch <- target.GameServer()
+	}
 	m.mu.Unlock()
 
 	go func() {
@@ -87,14 +97,16 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 	return ch
 }
 
-func (m *Monitor) Run(ctx context.Context, servers []GameServer) error {
-	pollers := make([]*poll.Poller, 0, len(servers))
-	channels := make([]chan poll.Signal, 0, len(servers))
-	items := make([]GameServer, 0, len(servers))
+func (m *Monitor) Run(ctx context.Context, targets []Target) error {
+	pollers := make([]*poll.Poller, 0, len(targets))
+	channels := make([]chan poll.Signal, 0, len(targets))
+	m.targets = make([]Target, 0, len(targets))
 
-	for _, server := range servers {
+	m.mu.Lock()
+	for _, target := range targets {
 		poller, err := poll.New(m.options.Pollers)
 		if err != nil {
+			m.mu.Unlock()
 			return err
 		}
 
@@ -102,11 +114,12 @@ func (m *Monitor) Run(ctx context.Context, servers []GameServer) error {
 
 		pollers = append(pollers, poller)
 		channels = append(channels, channel)
-		items = append(items, server)
+		m.targets = append(m.targets, target)
 	}
+	m.mu.Unlock()
 
 	for i := range pollers {
-		go pollers[i].Run(ctx, &items[i], channels[i])
+		go pollers[i].Run(ctx, m.targets[i], channels[i])
 	}
 
 	for {
@@ -114,12 +127,12 @@ func (m *Monitor) Run(ctx context.Context, servers []GameServer) error {
 			return nil
 		}
 
-		for i := range items {
+		for i := range m.targets {
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-channels[i]:
-				m.publish(items[i])
+				m.publish(m.targets[i].GameServer())
 			default:
 			}
 		}
