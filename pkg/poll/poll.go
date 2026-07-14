@@ -1,4 +1,4 @@
-// Package poll provides timed polling for checkers and emits a signal when true is returned.
+// Package poll provides repeated callback execution with per-call timeouts.
 package poll
 
 import (
@@ -12,16 +12,12 @@ const (
 	defaultTimeout = 10 * time.Second
 )
 
-type Checker interface {
-	Check(ctx context.Context) bool
-}
-
 type Options struct {
 	Delay   time.Duration
 	Timeout time.Duration
 }
 
-func (o *Options) Normalize() {
+func (o *Options) normalize() {
 	if o.Delay == 0 {
 		o.Delay = defaultDelay
 	}
@@ -31,7 +27,7 @@ func (o *Options) Normalize() {
 	}
 }
 
-func (o Options) Validate() error {
+func (o Options) validate() error {
 	if o.Delay < 0 {
 		return errors.New("delay cannot be negative")
 	}
@@ -48,9 +44,9 @@ type Poller struct {
 }
 
 func New(options Options) (Poller, error) {
-	options.Normalize()
+	options.normalize()
 
-	if err := options.Validate(); err != nil {
+	if err := options.validate(); err != nil {
 		return Poller{}, err
 	}
 
@@ -59,30 +55,29 @@ func New(options Options) (Poller, error) {
 	}, nil
 }
 
-func (p Poller) Run(ctx context.Context, source Checker, signals chan<- struct{}) {
-	for {
-		checkCtx, cancel := context.WithTimeout(ctx, p.options.Timeout)
-		trigger := source.Check(checkCtx)
-		cancel()
+func (p Poller) Run(ctx context.Context, callback func(ctx context.Context)) {
+	if ctx == nil {
+		panic("nil context")
+	}
 
+	if callback == nil {
+		panic("nil callback function")
+	}
+
+	for {
 		if ctx.Err() != nil {
 			return
 		}
 
-		if trigger {
-			select {
-			case signals <- struct{}{}:
-			default:
-			}
-		}
+		checkCtx, cancel := context.WithTimeout(ctx, p.options.Timeout)
+		callback(checkCtx)
+		cancel()
 
 		timer := time.NewTimer(p.options.Delay)
 
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			return
 		case <-timer.C:
 		}
