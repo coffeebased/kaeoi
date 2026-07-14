@@ -100,3 +100,21 @@ func (gs GameServer) GetQueryAddress() string {
 
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
+
+func (gs GameServer) GetQueryHost() string {
+	host := gs.Host
+	if gs.QueryHost != "" {
+		host = gs.QueryHost
+	}
+
+	return host
+}
+
+func (gs GameServer) GetQueryPort() int {
+	port := gs.Port
+	if gs.QueryPort != 0 {
+		port = gs.QueryPort
+	}
+
+	return port
+}

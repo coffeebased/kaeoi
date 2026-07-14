@@ -98,8 +98,8 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 }
 
 func (m *Monitor) Run(ctx context.Context, targets []Target) error {
-	pollers := make([]*poll.Poller, 0, len(targets))
-	channels := make([]chan poll.Signal, 0, len(targets))
+	pollers := make([]poll.Poller, 0, len(targets))
+	channels := make([]chan struct{}, 0, len(targets))
 	m.targets = make([]Target, 0, len(targets))
 
 	m.mu.Lock()
@@ -110,7 +110,7 @@ func (m *Monitor) Run(ctx context.Context, targets []Target) error {
 			return err
 		}
 
-		channel := make(chan poll.Signal, 1)
+		channel := make(chan struct{}, 1)
 
 		pollers = append(pollers, poller)
 		channels = append(channels, channel)

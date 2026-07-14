@@ -4,18 +4,46 @@ import (
 	"context"
 	"errors"
 	"net"
-	"time"
+	"sync"
 
 	"github.com/coffeebased/kaeoi/pkg/a2s"
 )
 
-func querySteamA2S(ctx context.Context, server GameServer, queryTimeout time.Duration) State {
-	localCtx, cancel := context.WithTimeout(ctx, queryTimeout)
-	defer cancel()
+type SteamA2SServer struct {
+	server GameServer
+	mu     sync.Mutex
+}
 
+func (s *SteamA2SServer) GameServer() GameServer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.server
+}
+
+func (s *SteamA2SServer) Check(ctx context.Context) bool {
+	s.mu.Lock()
+	address := s.server.GetQueryAddress()
+	s.mu.Unlock()
+
+	state := querySteamA2S(ctx, address)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if state != s.server.State {
+		s.server.State = state
+
+		return true
+	}
+
+	return false
+}
+
+func querySteamA2S(ctx context.Context, address string) State {
 	dialer := net.Dialer{}
 
-	conn, err := dialer.DialContext(localCtx, "udp", server.GetQueryAddress())
+	conn, err := dialer.DialContext(ctx, "udp", address)
 	if err != nil {
 		if ctx.Err() != nil {
 			return State{
@@ -31,7 +59,7 @@ func querySteamA2S(ctx context.Context, server GameServer, queryTimeout time.Dur
 		_ = conn.Close()
 	}()
 
-	if deadline, ok := localCtx.Deadline(); ok {
+	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
 

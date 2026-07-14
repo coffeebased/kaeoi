@@ -2,25 +2,44 @@ package gameserver
 
 import (
 	"context"
-	"time"
+	"sync"
 
 	"github.com/mcstatus-io/mcutil/v4/status"
 )
 
-func queryMinecraftJava(ctx context.Context, server GameServer, queryTimeout time.Duration) State {
-	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
-	defer cancel()
+type MinecraftJavaServer struct {
+	server GameServer
+	mu     sync.Mutex
+}
 
-	host := server.Host
-	if server.QueryHost != "" {
-		host = server.QueryHost
+func (s *MinecraftJavaServer) GameServer() GameServer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.server
+}
+
+func (s *MinecraftJavaServer) Check(ctx context.Context) bool {
+	s.mu.Lock()
+	host := s.GameServer().GetQueryHost()
+	port := s.GameServer().GetQueryPort()
+	s.mu.Unlock()
+
+	state := queryMinecraftJava(ctx, host, port)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if state != s.server.State {
+		s.server.State = state
+
+		return true
 	}
 
-	port := server.Port
-	if server.QueryPort != 0 {
-		port = server.QueryPort
-	}
+	return false
+}
 
+func queryMinecraftJava(ctx context.Context, host string, port int) State {
 	data, err := status.Modern(ctx, host, uint16(port))
 	if err != nil {
 		return State{
