@@ -3,7 +3,6 @@ package gameserver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/coffeebased/kaeoi/pkg/poll"
@@ -11,56 +10,27 @@ import (
 
 var ErrMonitorRunning = errors.New("monitor is already running")
 
-const defaultSubscriberSize = 16
-
 type Target interface {
-	GameServer() GameServer
-	poll.Checker
-}
-
-type MonitorOptions struct {
-	SubscriberSize int
-	Pollers        poll.Options
-}
-
-func (o *MonitorOptions) normalize() {
-	if o.SubscriberSize == 0 {
-		o.SubscriberSize = defaultSubscriberSize
-	}
-
-	o.Pollers.Normalize()
-}
-
-func (o MonitorOptions) validate() error {
-	if o.SubscriberSize <= 0 {
-		return errors.New("subscriber size cannot be less than zero")
-	}
-
-	if err := o.Pollers.Validate(); err != nil {
-		return fmt.Errorf("poller options: %w", err)
-	}
-
-	return nil
+	Latest() GameServer
+	Refresh(ctx context.Context) (server GameServer, changed bool)
 }
 
 type Monitor struct {
+	poller      poll.Poller
 	targets     []Target
-	options     MonitorOptions
 	subscribers map[chan GameServer]struct{}
+	running     bool
 	mu          sync.RWMutex
 }
 
-func newMonitor(options MonitorOptions) (*Monitor, error) {
-	options.normalize()
-
-	if err := options.validate(); err != nil {
-		return nil, err
-	}
+func newMonitor(targets []Target, poller poll.Poller) *Monitor {
+	snapshot := append([]Target(nil), targets...)
 
 	return &Monitor{
-		options:     options,
+		poller:      poller,
+		targets:     snapshot,
 		subscribers: make(map[chan GameServer]struct{}),
-	}, nil
+	}
 }
 
 func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
@@ -68,7 +38,7 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 		panic("nil context")
 	}
 
-	ch := make(chan GameServer, m.options.SubscriberSize)
+	ch := make(chan GameServer, len(m.targets))
 
 	m.mu.Lock()
 	if ctx.Err() != nil {
@@ -79,7 +49,7 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 
 	m.subscribers[ch] = struct{}{}
 	for _, target := range m.targets {
-		ch <- target.GameServer()
+		ch <- target.Latest()
 	}
 	m.mu.Unlock()
 
@@ -97,46 +67,48 @@ func (m *Monitor) Subscribe(ctx context.Context) <-chan GameServer {
 	return ch
 }
 
-func (m *Monitor) Run(ctx context.Context, targets []Target) error {
-	pollers := make([]poll.Poller, 0, len(targets))
-	channels := make([]chan struct{}, 0, len(targets))
-	m.targets = make([]Target, 0, len(targets))
+func (m *Monitor) Run(ctx context.Context) error {
+	if ctx == nil {
+		panic("nil context")
+	}
 
 	m.mu.Lock()
-	for _, target := range targets {
-		poller, err := poll.New(m.options.Pollers)
-		if err != nil {
-			m.mu.Unlock()
-			return err
-		}
 
-		channel := make(chan struct{}, 1)
-
-		pollers = append(pollers, poller)
-		channels = append(channels, channel)
-		m.targets = append(m.targets, target)
+	if m.running {
+		m.mu.Unlock()
+		return ErrMonitorRunning
 	}
+
+	m.running = true
 	m.mu.Unlock()
 
-	for i := range pollers {
-		go pollers[i].Run(ctx, m.targets[i], channels[i])
+	defer func() {
+		m.mu.Lock()
+		m.running = false
+		m.mu.Unlock()
+	}()
+
+	var wg sync.WaitGroup
+
+	for _, target := range m.targets {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			m.poller.Run(ctx, func(pollCtx context.Context) {
+				server, changed := target.Refresh(pollCtx)
+				if changed {
+					m.publish(server)
+				}
+			})
+		}()
 	}
 
-	for {
-		if ctx.Err() != nil {
-			return nil
-		}
+	<-ctx.Done()
+	wg.Wait()
 
-		for i := range m.targets {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-channels[i]:
-				m.publish(m.targets[i].GameServer())
-			default:
-			}
-		}
-	}
+	return nil
 }
 
 func (m *Monitor) publish(server GameServer) {
