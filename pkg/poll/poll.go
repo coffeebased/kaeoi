@@ -1,4 +1,4 @@
-// Package poll provides timed polling for checkers that emit signals.
+// Package poll provides timed polling for checkers and emits a signal when true is returned.
 package poll
 
 import (
@@ -13,11 +13,7 @@ const (
 )
 
 type Checker interface {
-	Check(ctx context.Context) (bool, error)
-}
-
-type Signal struct {
-	Err error
+	Check(ctx context.Context) bool
 }
 
 type Options struct {
@@ -51,35 +47,31 @@ type Poller struct {
 	options Options
 }
 
-func New(options Options) (*Poller, error) {
+func New(options Options) (Poller, error) {
 	options.Normalize()
 
 	if err := options.Validate(); err != nil {
-		return nil, err
+		return Poller{}, err
 	}
 
-	return &Poller{
+	return Poller{
 		options: options,
 	}, nil
 }
 
-func (p *Poller) Run(ctx context.Context, source Checker, channel chan Signal) {
-	defer close(channel)
-
+func (p Poller) Run(ctx context.Context, source Checker, signals chan<- struct{}) {
 	for {
 		checkCtx, cancel := context.WithTimeout(ctx, p.options.Timeout)
-		trigger, err := source.Check(checkCtx)
+		trigger := source.Check(checkCtx)
 		cancel()
 
 		if ctx.Err() != nil {
 			return
 		}
 
-		if trigger || err != nil {
+		if trigger {
 			select {
-			case channel <- Signal{
-				Err: err,
-			}:
+			case signals <- struct{}{}:
 			default:
 			}
 		}
