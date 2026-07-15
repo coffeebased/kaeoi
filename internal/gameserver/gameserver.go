@@ -44,9 +44,15 @@ type State struct {
 	PlayerCount int
 	Title       string
 	Description string
-	Message     string
 	Status      Status
-	Since       time.Time
+}
+
+type Metadata struct {
+	Message     string
+	LastChange  time.Time
+	LastSuccess time.Time
+	LastAttempt time.Time
+	LastErr     error
 }
 
 type GameServer struct {
@@ -63,6 +69,52 @@ type GameServer struct {
 	OverrideDefaults bool
 	Defaults         Defaults
 	State            State
+	Metadata         Metadata
+}
+
+func (gs GameServer) SetState(next State, message string) {
+	now := time.Now()
+
+	gs.Metadata.Message = message
+	gs.Metadata.LastAttempt = now
+	gs.Metadata.LastSuccess = now
+
+	if !gs.OverrideDefaults {
+		if gs.Defaults.Application != "" {
+			next.Application = gs.Defaults.Application
+		}
+
+		if gs.Defaults.Version != "" {
+			next.Version = gs.Defaults.Version
+		}
+
+		if gs.Defaults.MaxPlayers != 0 {
+			next.MaxPlayers = gs.Defaults.MaxPlayers
+		}
+
+		if gs.Defaults.Title != "" {
+			next.Title = gs.Defaults.Title
+		}
+
+		if gs.Defaults.Description != "" {
+			next.Description = gs.Defaults.Description
+		}
+	}
+
+	if gs.State == next {
+		return
+	}
+
+	gs.State = next
+	gs.Metadata.LastChange = now
+}
+
+func (gs GameServer) SetError(err error, message string) {
+	now := time.Now()
+
+	gs.Metadata.Message = message
+	gs.Metadata.LastAttempt = now
+	gs.Metadata.LastErr = err
 }
 
 func (gs GameServer) GetDisplayAddress() string {

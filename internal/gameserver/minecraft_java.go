@@ -9,20 +9,21 @@ import (
 
 type MinecraftJavaServer struct {
 	server GameServer
-	mu     sync.Mutex
+	mu     sync.RWMutex
 }
 
-func (s *MinecraftJavaServer) GameServer() GameServer {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *MinecraftJavaServer) Latest() GameServer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	return s.server
 }
 
-func (s *MinecraftJavaServer) Check(ctx context.Context) bool {
+func (s *MinecraftJavaServer) Refresh(ctx context.Context) (GameServer, bool) {
 	s.mu.Lock()
-	host := s.GameServer().GetQueryHost()
-	port := s.GameServer().GetQueryPort()
+	host := s.server.GetQueryHost()
+	port := s.server.GetQueryPort()
+	lastChange := s.server.Metadata.LastChange
 	s.mu.Unlock()
 
 	state := queryMinecraftJava(ctx, host, port)
@@ -30,13 +31,13 @@ func (s *MinecraftJavaServer) Check(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if state != s.server.State {
-		s.server.State = state
+	s.server.SetState(state, "")
 
-		return true
+	if lastChange == s.server.Metadata.LastChange {
+		return s.server, false
 	}
 
-	return false
+	return s.server, true
 }
 
 func queryMinecraftJava(ctx context.Context, host string, port int) State {
@@ -61,7 +62,7 @@ func queryMinecraftJava(ctx context.Context, host string, port int) State {
 		Version:     data.Version.Name.Clean,
 		MaxPlayers:  maxPlayers,
 		PlayerCount: playersCount,
-		Message:     data.MOTD.Clean,
+		Description: data.MOTD.Clean,
 		Status:      StatusOnline,
 	}
 }
