@@ -11,17 +11,23 @@ import (
 
 type SteamA2SServer struct {
 	server GameServer
-	mu     sync.Mutex
+	mu     sync.RWMutex
 }
 
-func (s *SteamA2SServer) GameServer() GameServer {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func newSteamA2SServer(server GameServer) *SteamA2SServer {
+	return &SteamA2SServer{
+		server: server,
+	}
+}
+
+func (s *SteamA2SServer) Latest() GameServer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	return s.server
 }
 
-func (s *SteamA2SServer) Check(ctx context.Context) bool {
+func (s *SteamA2SServer) Refresh(ctx context.Context) (GameServer, bool) {
 	s.mu.Lock()
 	address := s.server.GetQueryAddress()
 	s.mu.Unlock()
@@ -31,18 +37,12 @@ func (s *SteamA2SServer) Check(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if state != s.server.State {
-		s.server.State = state
-
-		return true
-	}
-
-	return false
+	changed := s.server.UpdateState(state)
+	return s.server, changed
 }
 
 func querySteamA2S(ctx context.Context, address string) State {
 	dialer := net.Dialer{}
-
 	conn, err := dialer.DialContext(ctx, "udp", address)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -91,7 +91,7 @@ func querySteamA2S(ctx context.Context, address string) State {
 		MaxPlayers:  info.MaxPlayers,
 		PlayerCount: info.Players,
 		Title:       info.Name,
-		Message:     info.Map,
+		Description: info.Map,
 		Status:      StatusOnline,
 	}
 }

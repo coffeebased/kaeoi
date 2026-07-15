@@ -23,7 +23,7 @@ type Monitor struct {
 	mu          sync.RWMutex
 }
 
-func newMonitor(targets []Target, poller poll.Poller) *Monitor {
+func NewMonitor(targets []Target, poller poll.Poller) *Monitor {
 	snapshot := append([]Target(nil), targets...)
 
 	return &Monitor{

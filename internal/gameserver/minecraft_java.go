@@ -12,6 +12,12 @@ type MinecraftJavaServer struct {
 	mu     sync.RWMutex
 }
 
+func newMinecraftJavaServer(server GameServer) *MinecraftJavaServer {
+	return &MinecraftJavaServer{
+		server: server,
+	}
+}
+
 func (s *MinecraftJavaServer) Latest() GameServer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -23,7 +29,6 @@ func (s *MinecraftJavaServer) Refresh(ctx context.Context) (GameServer, bool) {
 	s.mu.Lock()
 	host := s.server.GetQueryHost()
 	port := s.server.GetQueryPort()
-	lastChange := s.server.Metadata.LastChange
 	s.mu.Unlock()
 
 	state := queryMinecraftJava(ctx, host, port)
@@ -31,18 +36,19 @@ func (s *MinecraftJavaServer) Refresh(ctx context.Context) (GameServer, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.server.SetState(state, "")
-
-	if lastChange == s.server.Metadata.LastChange {
-		return s.server, false
-	}
-
-	return s.server, true
+	changed := s.server.UpdateState(state)
+	return s.server, changed
 }
 
 func queryMinecraftJava(ctx context.Context, host string, port int) State {
 	data, err := status.Modern(ctx, host, uint16(port))
 	if err != nil {
+		if ctx.Err() != nil {
+			return State{
+				Status: StatusUnknown,
+			}
+		}
+
 		return State{
 			Status: StatusOffline,
 		}

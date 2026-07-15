@@ -48,11 +48,8 @@ type State struct {
 }
 
 type Metadata struct {
-	Message     string
 	LastChange  time.Time
-	LastSuccess time.Time
 	LastAttempt time.Time
-	LastErr     error
 }
 
 type GameServer struct {
@@ -72,12 +69,10 @@ type GameServer struct {
 	Metadata         Metadata
 }
 
-func (gs GameServer) SetState(next State, message string) {
+func (gs *GameServer) UpdateState(next State) bool {
 	now := time.Now()
 
-	gs.Metadata.Message = message
 	gs.Metadata.LastAttempt = now
-	gs.Metadata.LastSuccess = now
 
 	if !gs.OverrideDefaults {
 		if gs.Defaults.Application != "" {
@@ -102,19 +97,12 @@ func (gs GameServer) SetState(next State, message string) {
 	}
 
 	if gs.State == next {
-		return
+		return false
 	}
 
 	gs.State = next
 	gs.Metadata.LastChange = now
-}
-
-func (gs GameServer) SetError(err error, message string) {
-	now := time.Now()
-
-	gs.Metadata.Message = message
-	gs.Metadata.LastAttempt = now
-	gs.Metadata.LastErr = err
+	return true
 }
 
 func (gs GameServer) GetDisplayAddress() string {
@@ -169,4 +157,25 @@ func (gs GameServer) GetQueryPort() int {
 	}
 
 	return port
+}
+
+func TargetsFromServers(servers []GameServer) []Target {
+	targets := make([]Target, 0, len(servers))
+
+	for _, server := range servers {
+		if server.Ignore {
+			continue
+		}
+
+		switch server.Kind {
+		case KindMinecraftJava:
+			target := newMinecraftJavaServer(server)
+			targets = append(targets, target)
+		case KindSteamA2S:
+			target := newSteamA2SServer(server)
+			targets = append(targets, target)
+		}
+	}
+
+	return targets
 }
