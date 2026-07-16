@@ -45,6 +45,7 @@ type State struct {
 	Title       string
 	Description string
 	Status      Status
+	Since       time.Time
 }
 
 type Metadata struct {
@@ -94,6 +95,11 @@ func (gs *GameServer) UpdateState(next State) bool {
 		if gs.Defaults.Description != "" {
 			next.Description = gs.Defaults.Description
 		}
+	}
+
+	next.Since = gs.State.Since
+	if next.Status != gs.State.Status {
+		next.Since = now
 	}
 
 	if gs.State == next {
